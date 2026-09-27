@@ -1,0 +1,342 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1e1e1e">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-192.png">
+<title>人像拍攝引導工具</title>
+<style>
+  :root {
+    --bg: #1e1e1e; --card: #2d2d2d; --card2: #3c3c3c;
+    --fg: #e0e0e0; --fg-dim: #9a9a9a; --accent: #4fc3f7; --warn: #ef9a9a;
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--fg);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    padding: 16px; padding-bottom: max(16px, env(safe-area-inset-bottom, 0px));
+  }
+  h1 { font-size: 1.3rem; margin: 4px 0 16px; }
+  .tabs { display: flex; gap: 6px; margin-bottom: 16px; flex-wrap: wrap; }
+  .tab-btn {
+    flex: 1 1 auto; min-width: 90px; padding: 10px 8px; border-radius: 10px;
+    border: none; background: var(--card); color: var(--fg-dim); font-size: 0.9rem;
+    cursor: pointer;
+  }
+  .tab-btn.active { background: var(--accent); color: #062633; font-weight: 600; }
+  .panel { display: none; background: var(--card); border-radius: 14px; padding: 16px; }
+  .panel.active { display: block; }
+  label { display: block; margin: 12px 0 4px; font-size: 0.9rem; color: var(--fg-dim); }
+  input, select {
+    width: 100%; padding: 10px; border-radius: 8px; border: 1px solid #4a4a4a;
+    background: var(--card2); color: var(--fg); font-size: 1rem;
+  }
+  .row2 { display: flex; gap: 8px; }
+  .row2 > div { flex: 1; }
+  button.primary {
+    margin-top: 16px; width: 100%; padding: 12px; border: none; border-radius: 10px;
+    background: var(--accent); color: #062633; font-size: 1rem; font-weight: 600; cursor: pointer;
+  }
+  button.secondary {
+    margin-top: 8px; width: 100%; padding: 10px; border: 1px solid var(--accent);
+    border-radius: 10px; background: transparent; color: var(--accent); font-size: 0.9rem; cursor: pointer;
+  }
+  .result {
+    margin-top: 16px; padding: 14px; border-radius: 10px; background: var(--card2);
+    font-size: 1.05rem; line-height: 1.6; white-space: pre-wrap; display: none;
+  }
+  .result.show { display: block; }
+  .result .warn { color: var(--warn); margin-top: 6px; display: block; }
+  .radio-group { display: flex; gap: 12px; margin-top: 8px; }
+  .radio-group label { display: flex; align-items: center; gap: 6px; margin: 0; color: var(--fg); }
+  .radio-group input { width: auto; }
+  .hint { font-size: 0.78rem; color: var(--fg-dim); margin-top: 4px; }
+</style>
+</head>
+<body>
+<h1>📷 人像拍攝引導工具</h1>
+
+<div class="tabs">
+  <button class="tab-btn active" data-tab="framing">① 取景距離</button>
+  <button class="tab-btn" data-tab="flash">② 閃燈計算</button>
+  <button class="tab-btn" data-tab="lighting">③ 光線方向</button>
+</div>
+
+<!-- 取景距離 -->
+<div class="panel active" id="panel-framing">
+  <label>焦距 (mm)</label>
+  <input type="number" id="f-focal" value="85">
+  <label>感光元件</label>
+  <select id="f-sensor"></select>
+  <label>取景類型</label>
+  <select id="f-framing"></select>
+  <button class="primary" onclick="calcFraming()">計算建議距離</button>
+  <div class="result" id="f-result"></div>
+</div>
+
+<!-- 閃燈計算 -->
+<div class="panel" id="panel-flash">
+  <label>閃燈 GN 值 (ISO100, 全出力)</label>
+  <input type="number" id="fl-gn" value="60">
+  <div class="row2">
+    <div><label>光圈 f/</label><input type="number" id="fl-aperture" value="5.6" step="0.1"></div>
+    <div><label>ISO</label><input type="number" id="fl-iso" value="100"></div>
+  </div>
+  <div class="radio-group">
+    <label><input type="radio" name="fl-mode" value="distance" checked> 已知出力，算距離</label>
+    <label><input type="radio" name="fl-mode" value="power"> 已知距離，算出力</label>
+  </div>
+  <div id="fl-power-row">
+    <label>出力 (%)</label>
+    <input type="number" id="fl-power" value="100">
+  </div>
+  <div id="fl-dist-row" style="display:none">
+    <label>目標距離 (公尺)</label>
+    <input type="number" id="fl-dist" value="3">
+  </div>
+  <button class="primary" onclick="calcFlash()">計算</button>
+  <div class="result" id="fl-result"></div>
+</div>
+
+<!-- 光線方向 -->
+<div class="panel" id="panel-lighting">
+  <div class="row2">
+    <div><label>緯度 (lat)</label><input type="number" id="l-lat" value="25.033" step="0.0001"></div>
+    <div><label>經度 (lon)</label><input type="number" id="l-lon" value="121.565" step="0.0001"></div>
+  </div>
+  <button class="secondary" onclick="useCurrentLocation()">📍 使用目前位置</button>
+  <div class="hint" id="l-geo-status"></div>
+  <label>光線類型</label>
+  <select id="l-lighttype"></select>
+  <button class="primary" onclick="calcLighting()">計算建議方位</button>
+  <div class="result" id="l-result"></div>
+  <button class="secondary" id="l-ar-btn" style="display:none" onclick="startAR()">🧭 開啟 AR 指引</button>
+</div>
+
+<!-- AR 指引全螢幕視圖 -->
+<div id="ar-view">
+  <video id="ar-video" autoplay playsinline muted></video>
+  <div id="ar-arrow">➤</div>
+  <div id="ar-status">校準中…</div>
+  <button id="ar-close" onclick="stopAR()">✕ 關閉</button>
+</div>
+
+<style>
+  #ar-view {
+    display: none; position: fixed; inset: 0; background: #000; z-index: 100;
+  }
+  #ar-view.show { display: block; }
+  #ar-video { width: 100%; height: 100%; object-fit: cover; }
+  #ar-arrow {
+    position: absolute; top: 50%; left: 50%; font-size: 3.5rem; color: var(--accent);
+    text-shadow: 0 0 10px rgba(0,0,0,0.8);
+    transform: translate(-50%, -50%) rotate(0deg);
+    transition: transform 0.15s linear;
+  }
+  #ar-status {
+    position: absolute; bottom: max(24px, env(safe-area-inset-bottom, 0px));
+    left: 0; right: 0; text-align: center; color: #fff; font-size: 1.1rem;
+    text-shadow: 0 0 6px rgba(0,0,0,0.9); padding: 8px;
+  }
+  #ar-close {
+    position: absolute; top: max(16px, env(safe-area-inset-top, 0px)); right: 16px;
+    background: rgba(0,0,0,0.5); color: #fff; border: none; border-radius: 8px;
+    padding: 8px 14px; font-size: 1rem;
+  }
+</style>
+
+<script src="sun.js"></script>
+<script src="calc.js"></script>
+<script>
+function loadOptions() {
+  fillSelect("f-sensor", Object.keys(SENSOR_LONG_SIDE_MM));
+  fillSelect("f-framing", Object.keys(FRAMING_SUBJECT_HEIGHT_M));
+  fillSelect("l-lighttype", Object.keys(LIGHT_TYPE_THETA_DEG));
+}
+function fillSelect(id, values) {
+  const el = document.getElementById(id);
+  el.innerHTML = values.map(v => `<option value="${v}">${v}</option>`).join("");
+}
+
+document.querySelectorAll(".tab-btn").forEach(btn => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
+    document.querySelectorAll(".panel").forEach(p => p.classList.remove("active"));
+    btn.classList.add("active");
+    document.getElementById("panel-" + btn.dataset.tab).classList.add("active");
+  });
+});
+
+document.querySelectorAll('input[name="fl-mode"]').forEach(r => {
+  r.addEventListener("change", () => {
+    const isDistance = document.querySelector('input[name="fl-mode"]:checked').value === "distance";
+    document.getElementById("fl-power-row").style.display = isDistance ? "block" : "none";
+    document.getElementById("fl-dist-row").style.display = isDistance ? "none" : "block";
+  });
+});
+
+function calcFraming() {
+  const focal = parseFloat(document.getElementById("f-focal").value);
+  const sensor = document.getElementById("f-sensor").value;
+  const framingType = document.getElementById("f-framing").value;
+  const el = document.getElementById("f-result");
+  if (!focal || focal <= 0) { el.textContent = "⚠️ 焦距請輸入正數"; el.classList.add("show"); return; }
+  const data = framingRecommend(focal, sensor, framingType);
+  el.textContent = `建議拍攝距離：約 ${data.distance_m} 公尺\n（水平視角約 ${data.horizontal_fov_deg} 度）`;
+  el.classList.add("show");
+}
+
+function calcFlash() {
+  const gn = parseFloat(document.getElementById("fl-gn").value);
+  const aperture = parseFloat(document.getElementById("fl-aperture").value);
+  const iso = parseFloat(document.getElementById("fl-iso").value);
+  const mode = document.querySelector('input[name="fl-mode"]:checked').value;
+  const el = document.getElementById("fl-result");
+  if (!gn || !aperture || !iso) { el.textContent = "⚠️ GN值/光圈/ISO請輸入數字"; el.classList.add("show"); return; }
+
+  if (mode === "distance") {
+    const power = parseFloat(document.getElementById("fl-power").value) / 100;
+    const d = flashDistance(gn, aperture, iso, power);
+    el.textContent = `建議閃燈到主體距離：約 ${d} 公尺`;
+  } else {
+    const targetDist = parseFloat(document.getElementById("fl-dist").value);
+    const p = flashPowerForDistance(gn, aperture, iso, targetDist);
+    const label = powerFractionToStopsLabel(Math.min(p, 1.0));
+    el.innerHTML = `建議出力：${label}（比例 ${p}）` +
+      (p > 1.0 ? `<span class="warn">⚠️ 全出力仍不夠亮，建議調高ISO或用更大光圈(數字變小)</span>` : "");
+  }
+  el.classList.add("show");
+}
+
+function useCurrentLocation() {
+  const status = document.getElementById("l-geo-status");
+  if (!navigator.geolocation) { status.textContent = "此瀏覽器不支援定位"; return; }
+  status.textContent = "定位中…";
+  navigator.geolocation.getCurrentPosition(
+    pos => {
+      document.getElementById("l-lat").value = pos.coords.latitude.toFixed(5);
+      document.getElementById("l-lon").value = pos.coords.longitude.toFixed(5);
+      status.textContent = "已取得目前位置";
+    },
+    err => { status.textContent = "定位失敗：" + err.message + "（手機瀏覽器需要HTTPS才能定位）"; }
+  );
+}
+
+let targetBearingDeg = null;  // AR指引要對準的方位角(度)，來自最近一次的光線方向計算(選項A)
+
+function calcLighting() {
+  const lat = parseFloat(document.getElementById("l-lat").value);
+  const lon = parseFloat(document.getElementById("l-lon").value);
+  const lightType = document.getElementById("l-lighttype").value;
+  const el = document.getElementById("l-result");
+  const arBtn = document.getElementById("l-ar-btn");
+  if (isNaN(lat) || isNaN(lon)) {
+    el.textContent = "⚠️ 經緯度請輸入數字";
+    el.classList.add("show");
+    arBtn.style.display = "none";
+    return;
+  }
+  const data = recommendCameraBearing(lat, lon, lightType, new Date());
+  el.innerHTML = `太陽方位角 ${data.sun_azimuth_deg}度／仰角 ${data.sun_elevation_deg}度\n` +
+    `相機面向選項A：${data.camera_bearing_option_A}\n` +
+    `相機面向選項B：${data.camera_bearing_option_B}` +
+    (data.warning ? `<span class="warn">⚠️ ${data.warning}</span>` : "");
+  targetBearingDeg = data.bearing_a_deg;
+  arBtn.style.display = "block";
+  el.classList.add("show");
+}
+
+/* ── AR 指引(指南針疊加在鏡頭畫面上) ──────────────────────────────
+   iOS Safari：羅盤方位要用event.webkitCompassHeading(已經是校正過的真實方位角，
+     不用自己換算)，且一定要由使用者點擊觸發DeviceOrientationEvent.requestPermission()
+     才會跳出授權詢問，沒辦法網頁載入就自動要求。
+   Android Chrome等：沒有webkitCompassHeading，改用'deviceorientationabsolute'事件的
+     event.alpha，指北方向跟alpha是反向關係，換算公式 heading = (360 - alpha) % 360。
+   兩種都抓不到的情況(桌面瀏覽器、不支援的裝置)顯示警告，鏡頭畫面照樣能看但箭頭不會動。
+*/
+let arStream = null;
+let orientationHandler = null;
+
+function currentHeadingFromEvent(event) {
+  if (typeof event.webkitCompassHeading === "number") {
+    return event.webkitCompassHeading;  // iOS Safari，已經是指北方位角
+  }
+  if (event.absolute && typeof event.alpha === "number") {
+    return (360 - event.alpha) % 360;  // Android等標準事件
+  }
+  return null;
+}
+
+function updateArrow(heading) {
+  const arrow = document.getElementById("ar-arrow");
+  const status = document.getElementById("ar-status");
+  if (heading === null || targetBearingDeg === null) {
+    status.textContent = "無法讀取羅盤方向（此瀏覽器/裝置不支援，或尚未授權）";
+    return;
+  }
+  let diff = (targetBearingDeg - heading + 360) % 360;
+  if (diff > 180) diff -= 360;  // 轉成 -180~180，正值代表要往右轉
+  arrow.style.transform = `translate(-50%, -50%) rotate(${diff}deg)`;
+  if (Math.abs(diff) < 8) {
+    status.textContent = "✅ 已對準建議方位";
+  } else {
+    status.textContent = diff > 0 ? `請向右轉 ${Math.round(diff)}度` : `請向左轉 ${Math.round(-diff)}度`;
+  }
+}
+
+async function startAR() {
+  if (targetBearingDeg === null) return;
+  const view = document.getElementById("ar-view");
+  view.classList.add("show");
+
+  // iOS 13+ Safari需要使用者手勢觸發才能要求羅盤權限
+  if (typeof DeviceOrientationEvent !== "undefined" &&
+      typeof DeviceOrientationEvent.requestPermission === "function") {
+    try {
+      const perm = await DeviceOrientationEvent.requestPermission();
+      if (perm !== "granted") {
+        document.getElementById("ar-status").textContent = "羅盤權限被拒絕，無法顯示指引方向";
+      }
+    } catch (e) {
+      document.getElementById("ar-status").textContent = "羅盤權限要求失敗：" + e.message;
+    }
+  }
+
+  orientationHandler = (event) => updateArrow(currentHeadingFromEvent(event));
+  window.addEventListener("deviceorientationabsolute", orientationHandler, true);
+  window.addEventListener("deviceorientation", orientationHandler, true);
+
+  try {
+    arStream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: "environment" }, audio: false
+    });
+    document.getElementById("ar-video").srcObject = arStream;
+  } catch (e) {
+    document.getElementById("ar-status").textContent = "無法開啟鏡頭：" + e.message;
+  }
+}
+
+function stopAR() {
+  document.getElementById("ar-view").classList.remove("show");
+  if (arStream) { arStream.getTracks().forEach(t => t.stop()); arStream = null; }
+  if (orientationHandler) {
+    window.removeEventListener("deviceorientationabsolute", orientationHandler, true);
+    window.removeEventListener("deviceorientation", orientationHandler, true);
+    orientationHandler = null;
+  }
+}
+
+loadOptions();
+
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("sw.js").catch((e) => console.warn("SW註冊失敗:", e));
+  });
+}
+</script>
+</body>
+</html>
